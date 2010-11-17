@@ -62,7 +62,8 @@ public:
 
 	bool set_property(const char *, const char *);
 
-	void do_dump(int);
+	void start_dump(int);
+	void finish_dump();
 
 private:
 	bool send_nlmsg(const netlink_msg *, netlink_msg *) const;
@@ -71,8 +72,6 @@ private:
 	void notify_changes();
 	void data_available(uint32_t);
 	int process_message();
-
-	void dump_request(int);
 
 	void handle_route_event(bool isnew, nlmsghdr *);
 	void handle_intf_event(bool isnew, nlmsghdr *);

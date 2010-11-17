@@ -196,7 +196,9 @@ static void _install_interface(const interface_desc &d) {
 
 	if (intf) {
 		if (!had) {
-			((linux_unicast_router &)g_mrd->rib()).do_dump(RTM_GETADDR);
+			linux_unicast_router &r = (linux_unicast_router &)g_mrd->rib();
+			r.start_dump(RTM_GETADDR);
+			r.finish_dump();
 		}
 
 		intf->change_state(d.up ? interface::Up : interface::Down);
@@ -204,7 +206,8 @@ static void _install_interface(const interface_desc &d) {
 }
 
 void linux_unicast_router::check_initial_interfaces() {
-	do_dump(RTM_GETLINK);
+	start_dump(RTM_GETLINK);
+	finish_dump();
 
 	for (std::vector<interface_desc>::const_iterator i = _interfaces.begin();
 			i != _interfaces.end(); ++i) {
@@ -213,26 +216,16 @@ void linux_unicast_router::check_initial_interfaces() {
 
 	_interfaces.clear();
 
-	do_dump(RTM_GETROUTE);
-
-	update_all();
+	start_dump(RTM_GETROUTE);
 }
 
-void linux_unicast_router::do_dump(int id) {
-	rt_dumping = true;
-
-	dump_request(id);
-
-	while (process_message() > 0);
-
-	rt_dumping = false;
-}
-
-void linux_unicast_router::dump_request(int type) {
+void linux_unicast_router::start_dump(int type) {
 	struct {
 		nlmsghdr n;
 		rtgenmsg g;
 	} r;
+
+	rt_dumping = true;
 
 	memset(&r, 0, sizeof(r));
 
@@ -244,6 +237,11 @@ void linux_unicast_router::dump_request(int type) {
 	r.g.rtgen_family = 0;
 
 	send(rt_bcast_sock.fd(), &r, sizeof(r), 0);
+}
+
+void linux_unicast_router::finish_dump() {
+	if(rt_dumping)
+		while (process_message() > 0);
 }
 
 void linux_unicast_router::shutdown() {
@@ -287,15 +285,20 @@ int linux_unicast_router::process_message() {
 		       MSG_DONTWAIT | MSG_NOSIGNAL);
 
 	if (len < 0) {
+		rt_dumping = false;
 		return -1;
 	}
 
 	for (nlmsghdr *hd = (struct nlmsghdr *)buffer; NLMSG_OK2(hd, len);
 			hd = NLMSG_NEXT(hd, len)) {
-		if (hd->nlmsg_type == NLMSG_DONE)
+		if (hd->nlmsg_type == NLMSG_DONE) {
+			rt_dumping = false;
 			return 0;
-		else if (hd->nlmsg_type == NLMSG_ERROR)
+		}
+		else if (hd->nlmsg_type == NLMSG_ERROR) {
+			rt_dumping = false;
 			return -1;
+		}
 
 		if (hd->nlmsg_len == 0)
 			break;
